@@ -10,12 +10,15 @@ app.use(express.json());
 // Konfigurasi via .env
 const PORT = process.env.PORT || 4000;
 const CREDENTIALS_PATH = process.env.CREDENTIALS_PATH;
-const QWEN_API_URL = process.env.QWEN_API_URL || 'https://portal.qwen.ai/v1/chat/completions';
+const QWEN_API_URL =
+    process.env.QWEN_API_URL || 'https://portal.qwen.ai/v1/chat/completions';
 const ROUTER_API_KEY = process.env.ROUTER_API_KEY; // Optional, jika diset maka request harus bawa Bearer ini
 
-const REFRESH_COMMAND = 'qwen -p "ping"'; 
-const REFRESH_BUFFER_MS = parseInt(process.env.REFRESH_BUFFER_MS) || 5 * 60 * 1000; 
-const CHECK_INTERVAL_MS = parseInt(process.env.CHECK_INTERVAL_MS) || 30 * 60 * 1000; 
+const REFRESH_COMMAND = 'qwen -p "ping"';
+const REFRESH_BUFFER_MS =
+    parseInt(process.env.REFRESH_BUFFER_MS) || 5 * 60 * 1000;
+const CHECK_INTERVAL_MS =
+    parseInt(process.env.CHECK_INTERVAL_MS) || 30 * 60 * 1000;
 
 let isRefreshing = false;
 
@@ -30,7 +33,7 @@ function getCredentials() {
         const data = fs.readFileSync(CREDENTIALS_PATH, 'utf8');
         return JSON.parse(data);
     } catch (error) {
-        console.error("❌ Error membaca file credentials:", error.message);
+        console.error('❌ Error membaca file credentials:', error.message);
         return null;
     }
 }
@@ -41,8 +44,8 @@ function getCredentials() {
 function refreshToken() {
     return new Promise((resolve, reject) => {
         if (isRefreshing) {
-            console.log("⏳ Refresh sedang berlangsung, menunggu...");
-            // Simple exponential backoff or just wait a bit could be better, 
+            console.log('⏳ Refresh sedang berlangsung, menunggu...');
+            // Simple exponential backoff or just wait a bit could be better,
             // but for now we'll just wait 2s and assume it finishes.
             // In production, a proper queue/mutex would be better.
             setTimeout(() => {
@@ -52,7 +55,9 @@ function refreshToken() {
         }
 
         isRefreshing = true;
-        console.log(`[${new Date().toLocaleTimeString()}] 🔄 Token kadaluwarsa atau hampir habis. Melakukan refresh...`);
+        console.log(
+            `[${new Date().toLocaleTimeString()}] 🔄 Token kadaluwarsa atau hampir habis. Melakukan refresh...`,
+        );
 
         exec(REFRESH_COMMAND, { timeout: 30000 }, (error, stdout, stderr) => {
             isRefreshing = false;
@@ -63,7 +68,7 @@ function refreshToken() {
                 return reject(error);
             }
 
-            console.log("✅ Token berhasil di-refresh via CLI.");
+            console.log('✅ Token berhasil di-refresh via CLI.');
             resolve(getCredentials());
         });
     });
@@ -79,12 +84,19 @@ async function ensureValidToken() {
 
     // Cek apakah token expired atau mendekati expired
     // expiry_date dalam ms
-    if (creds.expiry_date && (Date.now() + REFRESH_BUFFER_MS > creds.expiry_date)) {
-        console.log(`⚠️ Token expiry: ${new Date(creds.expiry_date).toLocaleTimeString()}. Refreshing...`);
+    if (
+        creds.expiry_date &&
+        Date.now() + REFRESH_BUFFER_MS > creds.expiry_date
+    ) {
+        console.log(
+            `⚠️ Token expiry: ${new Date(creds.expiry_date).toLocaleTimeString()}. Refreshing...`,
+        );
         try {
             creds = await refreshToken();
         } catch (e) {
-            console.error("❌ Gagal auto-refresh, mencoba menggunakan token lama sebisa mungkin...");
+            console.error(
+                '❌ Gagal auto-refresh, mencoba menggunakan token lama sebisa mungkin...',
+            );
         }
     }
 
@@ -99,7 +111,6 @@ setInterval(async () => {
     await ensureValidToken();
 }, CHECK_INTERVAL_MS);
 
-
 // Endpoint Health Check
 app.get('/health', (req, res) => {
     const creds = getCredentials();
@@ -107,8 +118,12 @@ app.get('/health', (req, res) => {
         status: 'online',
         server_time: new Date().toISOString(),
         token_exists: !!creds,
-        token_expiry: creds && creds.expiry_date ? new Date(creds.expiry_date).toISOString() : null,
-        token_valid: creds && creds.expiry_date ? (Date.now() < creds.expiry_date) : false
+        token_expiry:
+            creds && creds.expiry_date
+                ? new Date(creds.expiry_date).toISOString()
+                : null,
+        token_valid:
+            creds && creds.expiry_date ? Date.now() < creds.expiry_date : false,
     };
     res.json(status);
 });
@@ -116,21 +131,21 @@ app.get('/health', (req, res) => {
 // Endpoint List Models (OpenAI Compatible)
 app.get('/v1/models', (req, res) => {
     const models = {
-        "object": "list",
-        "data": [
+        object: 'list',
+        data: [
             {
-                "id": "qwen3-coder-plus",
-                "object": "model",
-                "created": 1677610602,
-                "owned_by": "qwen"
+                id: 'qwen3-coder-plus',
+                object: 'model',
+                created: 1677610602,
+                owned_by: 'qwen',
             },
             {
-                "id": "qwen3-coder-flash",
-                "object": "model",
-                "created": 1677610602,
-                "owned_by": "qwen"
-            }
-        ]
+                id: 'qwen3-coder-flash',
+                object: 'model',
+                created: 1677610602,
+                owned_by: 'qwen',
+            },
+        ],
     };
     res.json(models);
 });
@@ -144,7 +159,9 @@ app.post('/v1/chat/completions', async (req, res) => {
         const authHeader = req.headers['authorization'];
         const token = authHeader && authHeader.split(' ')[1];
         if (token !== ROUTER_API_KEY) {
-            return res.status(401).json({ error: "Unauthorized: Invalid Router API Key" });
+            return res
+                .status(401)
+                .json({ error: 'Unauthorized: Invalid Router API Key' });
         }
     }
 
@@ -152,42 +169,62 @@ app.post('/v1/chat/completions', async (req, res) => {
     const creds = await ensureValidToken();
 
     if (!creds || !creds.access_token) {
-        return res.status(500).json({ error: "Gagal mengambil access_token dari lokal." });
+        return res
+            .status(500)
+            .json({ error: 'Gagal mengambil access_token dari lokal.' });
     }
 
-    console.log(`[${new Date().toLocaleTimeString()}] Memproses request untuk model: ${req.body.model}`);
+    console.log(
+        `[${new Date().toLocaleTimeString()}] Memproses request untuk model: ${req.body.model}`,
+    );
 
     const makeRequest = async (token) => {
+        const controller = new AbortController();
+
+        // Batalkan request ke Qwen jika client disconnect
+        req.on('close', () => {
+            console.log(
+                `[${new Date().toLocaleTimeString()}] ⚠️ Client disconnected. Aborting upstream request...`,
+            );
+            controller.abort();
+        });
+
         return axios({
             method: 'post',
             url: QWEN_API_URL,
             data: req.body,
             headers: {
-                'Authorization': `Bearer ${token}`,
+                Authorization: `Bearer ${token}`,
                 'Content-Type': 'application/json',
-                'Accept': 'application/json'
+                Accept: 'application/json',
+                // Forward original User-Agent if available for better tracing
+                'User-Agent': req.headers['user-agent'] || 'Qwen-Router/1.0',
             },
-            responseType: req.body.stream ? 'stream' : 'json'
+            responseType: req.body.stream ? 'stream' : 'json',
+            signal: controller.signal,
         });
     };
 
     try {
         const response = await makeRequest(creds.access_token);
         handleResponse(req, res, response);
-
     } catch (error) {
         // Jika 401 Unauthorized, coba refresh sekali lagi
         if (error.response && error.response.status === 401) {
-            console.warn("⚠️ Mendapat 401 Unauthorized. Mengupdate token dan mencoba ulang...");
+            console.warn(
+                '⚠️ Mendapat 401 Unauthorized. Mengupdate token dan mencoba ulang...',
+            );
             try {
                 const newCreds = await refreshToken();
                 if (newCreds && newCreds.access_token) {
-                    const retryResponse = await makeRequest(newCreds.access_token);
+                    const retryResponse = await makeRequest(
+                        newCreds.access_token,
+                    );
                     handleResponse(req, res, retryResponse);
                     return;
                 }
             } catch (refreshError) {
-                console.error("❌ Gagal refresh token saat retry 401.");
+                console.error('❌ Gagal refresh token saat retry 401.');
             }
         }
 
@@ -201,26 +238,48 @@ function handleResponse(req, res, response) {
         res.setHeader('Content-Type', 'text/event-stream');
         res.setHeader('Cache-Control', 'no-cache');
         res.setHeader('Connection', 'keep-alive');
-        
+
         response.data.pipe(res);
-        
+
         response.data.on('end', () => {
-            console.log("✅ Stream selesai.");
+            console.log('✅ Stream selesai.');
         });
-    } 
+
+        // Handle error handling in stream
+        response.data.on('error', (err) => {
+            if (err.name === 'AbortError' || err.message === 'canceled') {
+                console.log('⚠️ Stream aborted by client.');
+            } else {
+                console.error('❌ Stream error:', err.message);
+            }
+        });
+    }
     // Penanganan Mode Normal (Non-Streaming)
     else {
         res.json(response.data);
-        console.log("✅ Request sukses.");
+        console.log('✅ Request sukses.');
     }
 }
 
 function handleError(res, error) {
+    if (axios.isCancel(error) || error.name === 'AbortError') {
+        console.log('⚠️ Request dibatalkan oleh user (Abort).');
+        // Jika client sudah close, res.send mungkin error, tapi kita coba saja atau abaikan
+        if (!res.headersSent) {
+            return res.status(499).json({ error: 'Client Closed Request' });
+        }
+        return;
+    }
+
     const status = error.response ? error.response.status : 500;
-    const errorData = error.response ? error.response.data : { error: error.message };
-    
+    const errorData = error.response
+        ? error.response.data
+        : { error: error.message };
+
     console.error(`❌ API Error (${status}):`, JSON.stringify(errorData));
-    res.status(status).json(errorData);
+    if (!res.headersSent) {
+        res.status(status).json(errorData);
+    }
 }
 
 // Menjalankan Server
