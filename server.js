@@ -228,7 +228,7 @@ app.post('/v1/chat/completions', async (req, res) => {
             }
         }
 
-        handleError(res, error);
+        await handleError(res, error);
     }
 });
 
@@ -261,10 +261,9 @@ function handleResponse(req, res, response) {
     }
 }
 
-function handleError(res, error) {
+async function handleError(res, error) {
     if (axios.isCancel(error) || error.name === 'AbortError') {
         console.log('⚠️ Request dibatalkan oleh user (Abort).');
-        // Jika client sudah close, res.send mungkin error, tapi kita coba saja atau abaikan
         if (!res.headersSent) {
             return res.status(499).json({ error: 'Client Closed Request' });
         }
@@ -272,13 +271,49 @@ function handleError(res, error) {
     }
 
     const status = error.response ? error.response.status : 500;
-    const errorData = error.response
+    let errorData = error.response
         ? error.response.data
         : { error: error.message };
 
-    console.error(`❌ API Error (${status}):`, JSON.stringify(errorData));
+    // Handle Stream Error Response (Axios returns stream in data if responseType is stream)
+    if (
+        error.response &&
+        error.response.data &&
+        typeof error.response.data.read === 'function'
+    ) {
+        try {
+            const chunks = [];
+            for await (const chunk of error.response.data) {
+                chunks.push(chunk);
+            }
+            const body = Buffer.concat(chunks).toString('utf8');
+            try {
+                errorData = JSON.parse(body);
+            } catch (e) {
+                errorData = { error: body };
+            }
+        } catch (e) {
+            errorData = {
+                error: 'Could not read error stream',
+                details: e.message,
+            };
+        }
+    }
+
+    // Gunakan ref log errorData langsung (node akan handle circular ref di console.error)
+    // JANGAN JSON.stringify sembarangan jika object kompleks/circular
+    console.error(`❌ API Error (${status}):`, errorData);
+
     if (!res.headersSent) {
-        res.status(status).json(errorData);
+        try {
+            res.status(status).json(errorData);
+        } catch (e) {
+            // Fallback jika errorData circular/tidak bisa di-json
+            res.status(status).json({
+                error: 'Upstream Error',
+                details: error.message,
+            });
+        }
     }
 }
 
