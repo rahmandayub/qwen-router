@@ -36,21 +36,41 @@ async function checkAuthStatus() {
     }
 }
 
+// Helper to safely extract text content
+function extractContent(content) {
+    if (typeof content === 'string') return content;
+    if (Array.isArray(content)) {
+        return content
+            .map((part) => {
+                if (typeof part === 'string') return part;
+                if (part && part.type === 'text') return part.text || '';
+                // Skip non-text parts (like images) for now
+                return '';
+            })
+            .join('');
+    }
+    if (typeof content === 'object' && content !== null) {
+        return JSON.stringify(content);
+    }
+    return String(content || '');
+}
+
 // Convert OpenAI messages format to a single prompt string
 function formatPrompt(messages) {
     let prompt = '';
     for (const msg of messages) {
+        const content = extractContent(msg.content);
+
         // Simple format: Role: Content
-        // Qwen CLI usually handles raw text well, but let's try to be structured.
         // We use a simplified chat format.
         if (msg.role === 'system') {
-            prompt += `<|im_start|>system\n${msg.content}<|im_end|>\n`;
+            prompt += `<|im_start|>system\n${content}<|im_end|>\n`;
         } else if (msg.role === 'user') {
-            prompt += `<|im_start|>user\n${msg.content}<|im_end|>\n`;
+            prompt += `<|im_start|>user\n${content}<|im_end|>\n`;
         } else if (msg.role === 'assistant') {
-            prompt += `<|im_start|>assistant\n${msg.content}<|im_end|>\n`;
+            prompt += `<|im_start|>assistant\n${content}<|im_end|>\n`;
         } else {
-            prompt += `\n${msg.role}: ${msg.content}\n`;
+            prompt += `\n${msg.role}: ${content}\n`;
         }
     }
     // Append prompt for assistant to start
