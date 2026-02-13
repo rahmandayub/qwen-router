@@ -192,7 +192,15 @@ app.post('/v1/chat/completions', async (req, res) => {
                     json.role === 'assistant'
                 ) {
                     // Potential alternative format
-                    contentChunk += json.content;
+                    if (typeof json.content === 'string') {
+                        contentChunk += json.content;
+                    } else if (Array.isArray(json.content)) {
+                        for (const part of json.content) {
+                            if (part.type === 'text') {
+                                contentChunk += part.text;
+                            }
+                        }
+                    }
                 }
 
                 if (contentChunk) {
