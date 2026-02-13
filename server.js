@@ -168,7 +168,9 @@ app.post('/v1/chat/completions', async (req, res) => {
 
             if (!line) continue;
 
-            console.log(`[CLI RAW]: ${line}`);
+            if (process.env.DEBUG === 'true') {
+                console.log(`[CLI RAW]: ${line}`);
+            }
 
             try {
                 const json = JSON.parse(line);
