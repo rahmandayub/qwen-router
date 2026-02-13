@@ -16,6 +16,9 @@ const ROUTER_API_KEY = process.env.ROUTER_API_KEY;
 const SSL_KEY_PATH = process.env.SSL_KEY_PATH;
 const SSL_CERT_PATH = process.env.SSL_CERT_PATH;
 const DEFAULT_MODEL = process.env.DEFAULT_MODEL || 'coder-model';
+const RATE_LIMIT_RETRY_MS =
+    parseInt(process.env.RATE_LIMIT_RETRY_MS, 10) || 10000;
+const MAX_RETRIES = parseInt(process.env.MAX_RETRIES, 10) || 3;
 
 // Qwen OAuth constants (from CLI source @ cli.js#L144567)
 const QWEN_OAUTH_TOKEN_ENDPOINT = 'https://chat.qwen.ai/api/v1/oauth2/token';
@@ -194,7 +197,7 @@ function createOpenAIClient(token) {
         apiKey: token,
         baseURL: baseURL,
         timeout: 120000, // 2 min (matches CLI: DEFAULT_TIMEOUT = 120000)
-        maxRetries: 3, // matches CLI: DEFAULT_MAX_RETRIES = 3
+        maxRetries: 0, // Disable SDK retries — we handle 429 retry ourselves
         defaultHeaders: {
             // DashScope headers (cli.js#L141522-L141533)
             'User-Agent': userAgent,
@@ -208,6 +211,10 @@ function createOpenAIClient(token) {
 // ─── Session Management ─────────────────────────────────────────────────────
 
 const SESSION_ID = crypto.randomUUID();
+
+function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 // ─── DashScope Prompt Caching ───────────────────────────────────────────────
 // The CLI adds cache_control annotations to optimize DashScope prompt caching
@@ -337,7 +344,7 @@ async function handleChatCompletion(reqBody, requestId, res) {
     console.log(`  → API: ${client.baseURL} (model: ${model})`);
 
     // Wrap in credential management (cli.js#L144810-L144830)
-    const executeWithRetry = async (isRetry = false) => {
+    const executeWithRetry = async (attempt = 0) => {
         try {
             if (stream) {
                 // Stream options (cli.js#L141951)
@@ -389,7 +396,7 @@ async function handleChatCompletion(reqBody, requestId, res) {
             }
         } catch (error) {
             // Auth error → refresh and retry once (cli.js#L144810-L144830)
-            if (!isRetry && isAuthError(error)) {
+            if (attempt === 0 && isAuthError(error)) {
                 console.log('  → Auth error, refreshing token...');
                 const newToken = await refreshToken();
                 if (newToken) {
@@ -397,7 +404,7 @@ async function handleChatCompletion(reqBody, requestId, res) {
                     client.apiKey = newToken;
                     client.baseURL = getApiBaseUrl();
                     console.log('  → Retrying with refreshed token...');
-                    return executeWithRetry(true);
+                    return executeWithRetry(attempt + 1);
                 }
             }
 
@@ -406,6 +413,21 @@ async function handleChatCompletion(reqBody, requestId, res) {
             const errMsg = error.message || 'Unknown error';
 
             console.error(`  → API Error (${status}): ${errMsg}`);
+
+            // 429 → per-request retry with exponential backoff
+            if (status === 429 && attempt < MAX_RETRIES) {
+                const retryAfter = error.headers?.['retry-after'];
+                const baseWait = retryAfter
+                    ? parseInt(retryAfter, 10) * 1000
+                    : RATE_LIMIT_RETRY_MS;
+                // Exponential backoff: 10s → 20s → 40s (or Retry-After based)
+                const waitMs = baseWait * Math.pow(2, attempt);
+                console.log(
+                    `  ⏳ Rate limited (attempt ${attempt + 1}/${MAX_RETRIES}). Retrying in ${(waitMs / 1000).toFixed(0)}s...`,
+                );
+                await sleep(waitMs);
+                return executeWithRetry(attempt + 1);
+            }
 
             if (!res.headersSent) {
                 if (status === 429) {
@@ -498,11 +520,9 @@ app.post('/v1/chat/completions', async (req, res) => {
         const authHeader = req.headers['authorization'];
         const token = authHeader && authHeader.split(' ')[1];
         if (token !== ROUTER_API_KEY) {
-            return res
-                .status(401)
-                .json({
-                    error: { message: 'Unauthorized: Invalid Router API Key' },
-                });
+            return res.status(401).json({
+                error: { message: 'Unauthorized: Invalid Router API Key' },
+            });
         }
     }
 
@@ -516,7 +536,7 @@ app.post('/v1/chat/completions', async (req, res) => {
 
     if (Array.isArray(tools) && tools.length > 0) {
         const toolNames = tools.map((t) => t.function?.name).filter(Boolean);
-        console.log(`  → Tools: ${toolNames.join(', ')}`);
+        console.log(`  → Tools (${tools.length}): ${toolNames.join(', ')}`);
     }
     if (tool_choice)
         console.log(`  → Tool Choice: ${JSON.stringify(tool_choice)}`);
@@ -571,7 +591,7 @@ async function startServer() {
   Session ID     : ${SESSION_ID}
   ---------------------------------------------------
   Uses OpenAI SDK with DashScope headers (same as Qwen CLI)
-  • Auto retries: 3x with exponential backoff (0.5s→8s)
+  • 429 retry: up to ${MAX_RETRIES}x with exponential backoff (${RATE_LIMIT_RETRY_MS / 1000}s base)
   • Auto token refresh via direct OAuth2 (no CLI spawn)
   • DashScope prompt caching enabled for streaming
   • Native tool/function calling support
