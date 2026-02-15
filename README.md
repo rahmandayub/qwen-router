@@ -19,7 +19,7 @@ A lightweight, self-healing local proxy for the Qwen API. It seamlessly handles 
 
 1. Clone the repository:
    ```bash
-   git clone <repo-url>
+   git clone https://github.com/rahmandayub/qwen-router.git
    cd qwen-router
    ```
 
